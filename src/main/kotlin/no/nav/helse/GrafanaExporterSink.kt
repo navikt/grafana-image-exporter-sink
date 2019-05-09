@@ -2,10 +2,7 @@ package no.nav.helse
 
 import arrow.core.Try
 import com.amazonaws.services.s3.AmazonS3
-import com.amazonaws.services.s3.model.BucketLifecycleConfiguration
-import com.amazonaws.services.s3.model.CannedAccessControlList
-import com.amazonaws.services.s3.model.CreateBucketRequest
-import com.amazonaws.services.s3.model.ObjectMetadata
+import com.amazonaws.services.s3.model.*
 import com.amazonaws.services.s3.model.lifecycle.LifecycleFilter
 import io.ktor.application.Application
 import io.ktor.application.ApplicationStopping
@@ -43,14 +40,14 @@ fun Application.grafanaExporterSink(s3Client: AmazonS3) {
                 log.info("recevied ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
 
                 Try {
-                    s3Client.putObject(exportedPanelsBucket, "${dashboardId}_$panelName.png", ByteArrayInputStream(imageData), ObjectMetadata().apply {
+                    s3Client.putObject(PutObjectRequest(exportedPanelsBucket, "${dashboardId}_$panelName.png", ByteArrayInputStream(imageData), ObjectMetadata().apply {
                         contentLength = imageData.size.toLong()
 
                         val md = MessageDigest.getInstance("MD5")
                         md.update(imageData)
 
                         contentMD5 = Base64.getEncoder().encodeToString(md.digest())
-                    })
+                    }).withCannedAcl(CannedAccessControlList.PublicRead))
                 }.fold({ error ->
                     log.info("error while uploading to s3", error)
                 }, {

@@ -1,6 +1,7 @@
 package no.nav.helse
 
 import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.CannedAccessControlList
 import com.amazonaws.services.s3.model.PutObjectResult
 import io.ktor.config.MapApplicationConfig
 import io.ktor.server.engine.connector
@@ -68,9 +69,12 @@ class ComponentTest {
         val s3Mock = mockk<AmazonS3>(relaxed = true)
 
         every {
-            s3Mock.putObject(exportedPanelsBucket, "${dashboardId}_$panelName.png", any(), match {
-                it.contentLength == image.size.toLong()
-                        && it.contentMD5 == imageMD5
+            s3Mock.putObject(match { putRequest ->
+                putRequest.bucketName == exportedPanelsBucket
+                        && putRequest.key == "${dashboardId}_$panelName.png"
+                        && putRequest.metadata.contentLength == image.size.toLong()
+                        && putRequest.metadata.contentMD5 == imageMD5
+                        && putRequest.cannedAcl == CannedAccessControlList.PublicRead
             })
         } returns PutObjectResult().apply {
             contentMd5 = imageMD5
@@ -100,9 +104,12 @@ class ComponentTest {
         }
 
         verify(exactly = 1) {
-            s3Mock.putObject(exportedPanelsBucket, "${dashboardId}_$panelName.png", any(), match {
-                it.contentLength == image.size.toLong()
-                        && it.contentMD5 == imageMD5
+            s3Mock.putObject(match { putRequest ->
+                putRequest.bucketName == exportedPanelsBucket
+                        && putRequest.key == "${dashboardId}_$panelName.png"
+                        && putRequest.metadata.contentLength == image.size.toLong()
+                        && putRequest.metadata.contentMD5 == imageMD5
+                        && putRequest.cannedAcl == CannedAccessControlList.PublicRead
             })
         }
     }
