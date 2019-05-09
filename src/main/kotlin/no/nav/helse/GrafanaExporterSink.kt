@@ -15,6 +15,7 @@ import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.streams.*
 import org.apache.kafka.streams.errors.LogAndFailExceptionHandler
 import org.apache.kafka.streams.kstream.Consumed
+import org.slf4j.MDC
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.security.MessageDigest
@@ -37,22 +38,30 @@ fun Application.grafanaExporterSink(s3Client: AmazonS3) {
                 KeyValue(dashboardId to panelName, value)
             }
             .foreach { (dashboardId, panelName), imageData ->
-                log.info("recevied ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
+                try {
+                    MDC.put("dashboardId", dashboardId)
+                    MDC.put("panelName", panelName)
 
-                Try {
-                    s3Client.putObject(PutObjectRequest(exportedPanelsBucket, "${dashboardId}_$panelName.png", ByteArrayInputStream(imageData), ObjectMetadata().apply {
-                        contentLength = imageData.size.toLong()
+                    log.info("recevied ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
 
-                        val md = MessageDigest.getInstance("MD5")
-                        md.update(imageData)
+                    Try {
+                        s3Client.putObject(PutObjectRequest(exportedPanelsBucket, "${dashboardId}_$panelName.png", ByteArrayInputStream(imageData), ObjectMetadata().apply {
+                            contentLength = imageData.size.toLong()
 
-                        contentMD5 = Base64.getEncoder().encodeToString(md.digest())
-                    }).withCannedAcl(CannedAccessControlList.PublicRead))
-                }.fold({ error ->
-                    log.info("error while uploading to s3", error)
-                }, {
-                    log.info("uploaded ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
-                })
+                            val md = MessageDigest.getInstance("MD5")
+                            md.update(imageData)
+
+                            contentMD5 = Base64.getEncoder().encodeToString(md.digest())
+                        }).withCannedAcl(CannedAccessControlList.PublicRead))
+                    }.fold({ error ->
+                        log.info("error while uploading to s3", error)
+                    }, {
+                        log.info("uploaded ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
+                    })
+                } finally {
+                    MDC.remove("panelName")
+                    MDC.remove("dashboardId")
+                }
             }
 
     val streams = KafkaStreams(builder.build(), streamsConfig())
