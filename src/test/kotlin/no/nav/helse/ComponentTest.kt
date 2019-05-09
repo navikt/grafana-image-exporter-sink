@@ -1,16 +1,29 @@
 package no.nav.helse
 
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.PutObjectResult
 import io.ktor.config.MapApplicationConfig
 import io.ktor.server.engine.connector
 import io.ktor.server.testing.createTestEnvironment
 import io.ktor.server.testing.withApplication
 import io.ktor.util.KtorExperimentalAPI
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import no.nav.common.JAASCredential
 import no.nav.common.KafkaEnvironment
+import org.apache.kafka.clients.CommonClientConfigs
+import org.apache.kafka.clients.producer.KafkaProducer
+import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.common.config.SaslConfigs
+import org.apache.kafka.common.serialization.ByteArraySerializer
+import org.apache.kafka.common.serialization.StringSerializer
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import java.security.MessageDigest
+import java.util.*
+import kotlin.collections.HashMap
 
 class ComponentTest {
     companion object {
@@ -41,7 +54,28 @@ class ComponentTest {
 
     @Test
     @KtorExperimentalAPI
-    fun `should put image on topic`() {
+    fun `should read image from topic`() {
+        val dashboardId = "my-dashboard"
+        val panelName = "panel-name"
+        val image = testImage()
+
+        val imageMD5 = image.let {
+            val md = MessageDigest.getInstance("MD5")
+            md.update(it)
+            Base64.getEncoder().encodeToString(md.digest())
+        }
+
+        val s3Mock = mockk<AmazonS3>(relaxed = true)
+
+        every {
+            s3Mock.putObject(exportedPanelsBucket, "${dashboardId}_$panelName.png", any(), match {
+                it.contentLength == image.size.toLong()
+                        && it.contentMD5 == imageMD5
+            })
+        } returns PutObjectResult().apply {
+            contentMd5 = imageMD5
+        }
+
         withApplication(
                 environment = createTestEnvironment {
                     with (config as MapApplicationConfig) {
@@ -56,10 +90,39 @@ class ComponentTest {
                     }
 
                     module {
-                        grafanaExporterSink()
+                        grafanaExporterSink(s3Mock)
                     }
                 }) {
-            assertTrue(true)
+
+            Thread.sleep(5000L)
+
+            produceOneMessage("$dashboardId:$panelName", image)
+        }
+
+        verify(exactly = 1) {
+            s3Mock.putObject(exportedPanelsBucket, "${dashboardId}_$panelName.png", any(), match {
+                it.contentLength == image.size.toLong()
+                        && it.contentMD5 == imageMD5
+            })
+        }
+    }
+
+    private fun testImage() =
+            ComponentTest::class.java.classLoader.getResource("test.png").readBytes()
+
+    private fun produceOneMessage(key: String, value: ByteArray) {
+        val producer = KafkaProducer<String, ByteArray>(producerProperties(), StringSerializer(), ByteArraySerializer())
+        producer.send(ProducerRecord(exportedPanelsTopic, key, value)).get().let {
+            println("record produced: $it")
+        }
+    }
+
+    private fun producerProperties(): MutableMap<String, Any>? {
+        return HashMap<String, Any>().apply {
+            put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, embeddedEnvironment.brokersURL)
+            put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, "SASL_PLAINTEXT")
+            put(SaslConfigs.SASL_MECHANISM, "PLAIN")
+            put(SaslConfigs.SASL_JAAS_CONFIG, "org.apache.kafka.common.security.plain.PlainLoginModule required username=\"$username\" password=\"$password\";")
         }
     }
 }

@@ -5,8 +5,9 @@ val ktorVersion = "1.1.2"
 val kafkaVersion = "2.0.1"
 val arrowVersion = "0.9.0"
 val prometheusVersion = "0.6.0"
-val s3SdkVersion = "2.5.29"
+val s3SdkVersion = "1.11.478"
 val junitJupiterVersion = "5.4.0"
+val mockkVersion = "1.9"
 val mainClass = "no.nav.helse.AppKt"
 
 plugins {
@@ -30,10 +31,11 @@ dependencies {
     compile("io.prometheus:simpleclient_common:$prometheusVersion")
     compile("io.prometheus:simpleclient_hotspot:$prometheusVersion")
 
-    compile("software.amazon.awssdk:kinesis:$s3SdkVersion")
+    compile("com.amazonaws:aws-java-sdk-s3:$s3SdkVersion")
 
     compile("io.arrow-kt:arrow-core-data:$arrowVersion")
 
+    testCompile("io.mockk:mockk:$mockkVersion")
     testCompile ("no.nav:kafka-embedded-env:$kafkaVersion")
 
     testCompile("org.junit.jupiter:junit-jupiter-api:$junitJupiterVersion")

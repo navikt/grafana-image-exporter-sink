@@ -1,5 +1,12 @@
 package no.nav.helse
 
+import arrow.core.Try
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.model.BucketLifecycleConfiguration
+import com.amazonaws.services.s3.model.CannedAccessControlList
+import com.amazonaws.services.s3.model.CreateBucketRequest
+import com.amazonaws.services.s3.model.ObjectMetadata
+import com.amazonaws.services.s3.model.lifecycle.LifecycleFilter
 import io.ktor.application.Application
 import io.ktor.application.ApplicationStopping
 import io.ktor.application.log
@@ -11,32 +18,72 @@ import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.streams.*
 import org.apache.kafka.streams.errors.LogAndFailExceptionHandler
 import org.apache.kafka.streams.kstream.Consumed
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.security.MessageDigest
 import java.util.*
 
 internal const val exportedPanelsTopic = "aapen-grafana-paneler-v1"
+internal const val exportedPanelsBucket = "grafana-panels"
 
 @KtorExperimentalAPI
-fun Application.grafanaExporterSink() {
+fun Application.grafanaExporterSink(s3Client: AmazonS3) {
     val builder = StreamsBuilder()
+
+    ensureBucketExists(s3Client)
 
     builder.stream<String, ByteArray>(exportedPanelsTopic, Consumed.with(Serdes.String(), Serdes.ByteArray())
             .withOffsetResetPolicy(Topology.AutoOffsetReset.LATEST))
             .map { key, value ->
-                val (dashboardId, panelId) = key.split(":", limit = 2)
+                val (dashboardId, panelName) = key.split(":", limit = 2)
 
-                KeyValue(dashboardId to panelId, value)
+                KeyValue(dashboardId to panelName, value)
             }
-            .foreach { (dashboardId, panelId), imageData ->
-                log.info("recevied ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelId")
+            .foreach { (dashboardId, panelName), imageData ->
+                log.info("recevied ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
+
+                Try {
+                    s3Client.putObject(exportedPanelsBucket, "${dashboardId}_$panelName.png", ByteArrayInputStream(imageData), ObjectMetadata().apply {
+                        contentLength = imageData.size.toLong()
+
+                        val md = MessageDigest.getInstance("MD5")
+                        md.update(imageData)
+
+                        contentMD5 = Base64.getEncoder().encodeToString(md.digest())
+                    })
+                }.fold({ error ->
+                    log.info("error while uploading to s3", error)
+                }, {
+                    log.info("uploaded ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
+                })
             }
 
     val streams = KafkaStreams(builder.build(), streamsConfig())
+    streams.setUncaughtExceptionHandler { thread, err ->
+        log.info("uncaught exception in thread $thread", err)
+    }
+
     streams.start()
 
     environment.monitor.subscribe(ApplicationStopping) {
         streams.close()
     }
+}
+
+private fun ensureBucketExists(s3Client: AmazonS3) {
+    if (s3Client.doesBucketExistV2(exportedPanelsBucket)) {
+        return
+    }
+
+    s3Client.createBucket(CreateBucketRequest(exportedPanelsBucket)
+            .withCannedAcl(CannedAccessControlList.PublicRead))
+
+    s3Client.setBucketLifecycleConfiguration(exportedPanelsBucket, BucketLifecycleConfiguration()
+            .withRules(BucketLifecycleConfiguration.Rule()
+                    .withId("grafana-retention-policy-24h")
+                    .withFilter(LifecycleFilter())
+                    .withStatus(BucketLifecycleConfiguration.ENABLED)
+                    .withExpirationInDays(1)))
 }
 
 @KtorExperimentalAPI
