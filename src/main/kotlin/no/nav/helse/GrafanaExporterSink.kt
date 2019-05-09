@@ -7,11 +7,10 @@ import io.ktor.util.KtorExperimentalAPI
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.config.SaslConfigs
 import org.apache.kafka.common.config.SslConfigs
-import org.apache.kafka.streams.KafkaStreams
-import org.apache.kafka.streams.KeyValue
-import org.apache.kafka.streams.StreamsBuilder
-import org.apache.kafka.streams.StreamsConfig
+import org.apache.kafka.common.serialization.Serdes
+import org.apache.kafka.streams.*
 import org.apache.kafka.streams.errors.LogAndFailExceptionHandler
+import org.apache.kafka.streams.kstream.Consumed
 import java.io.File
 import java.util.*
 
@@ -21,7 +20,8 @@ internal const val exportedPanelsTopic = "aapen-grafana-paneler-v1"
 fun Application.grafanaExporterSink() {
     val builder = StreamsBuilder()
 
-    builder.stream<String, ByteArray>(exportedPanelsTopic)
+    builder.stream<String, ByteArray>(exportedPanelsTopic, Consumed.with(Serdes.String(), Serdes.ByteArray())
+            .withOffsetResetPolicy(Topology.AutoOffsetReset.LATEST))
             .map { key, value ->
                 val (dashboardId, panelId) = key.split(":", limit = 2)
 
