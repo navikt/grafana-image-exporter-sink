@@ -48,8 +48,10 @@ fun Application.grafanaExporterSink(s3Client: AmazonS3) {
 
                     log.info("recevied ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
 
+                    val filename = if (panelName.indexOf(".png") == -1) "${dashboardId}_$panelName.png" else "${dashboardId}_$panelName"
+
                     Try {
-                        s3Client.putObject(PutObjectRequest(exportedPanelsBucket, "${dashboardId}_$panelName.png", ByteArrayInputStream(imageData), ObjectMetadata().apply {
+                        s3Client.putObject(PutObjectRequest(exportedPanelsBucket, filename, ByteArrayInputStream(imageData), ObjectMetadata().apply {
                             contentLength = imageData.size.toLong()
 
                             val md = MessageDigest.getInstance("MD5")

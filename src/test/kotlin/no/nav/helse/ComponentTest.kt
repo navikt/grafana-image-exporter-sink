@@ -101,7 +101,7 @@ class ComponentTest {
             Thread.sleep(5000L)
 
             produceOneMessage("$dashboardId:$panelName", image)
-            produceOneMessage("${dashboardId}_$panelName", image)
+            produceOneMessage("${dashboardId}_$panelName.png", image)
         }
 
         verify(exactly = 2) {
