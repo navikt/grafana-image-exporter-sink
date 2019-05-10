@@ -33,9 +33,13 @@ fun Application.grafanaExporterSink(s3Client: AmazonS3) {
     builder.stream<String, ByteArray>(exportedPanelsTopic, Consumed.with(Serdes.String(), Serdes.ByteArray())
             .withOffsetResetPolicy(Topology.AutoOffsetReset.LATEST))
             .map { key, value ->
-                val (dashboardId, panelName) = key.split(":", limit = 2)
-
-                KeyValue(dashboardId to panelName, value)
+                if (key.indexOf(':') == -1) {
+                    val (dashboardId, panelName) = key.split("_", limit = 2)
+                    KeyValue(dashboardId to panelName, value)
+                } else {
+                    val (dashboardId, panelName) = key.split(":", limit = 2)
+                    KeyValue(dashboardId to panelName, value)
+                }
             }
             .foreach { (dashboardId, panelName), imageData ->
                 try {
