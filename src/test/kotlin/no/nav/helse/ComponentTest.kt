@@ -100,11 +100,10 @@ class ComponentTest {
 
             Thread.sleep(5000L)
 
-            produceOneMessage("$dashboardId:$panelName", image)
             produceOneMessage("${dashboardId}_$panelName.png", image)
         }
 
-        verify(exactly = 2) {
+        verify(exactly = 1) {
             s3Mock.putObject(match { putRequest ->
                 putRequest.bucketName == exportedPanelsBucket
                         && putRequest.key == "${dashboardId}_$panelName.png"

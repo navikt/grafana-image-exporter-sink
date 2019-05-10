@@ -33,22 +33,15 @@ fun Application.grafanaExporterSink(s3Client: AmazonS3) {
     builder.stream<String, ByteArray>(exportedPanelsTopic, Consumed.with(Serdes.String(), Serdes.ByteArray())
             .withOffsetResetPolicy(Topology.AutoOffsetReset.LATEST))
             .map { key, value ->
-                if (key.indexOf(':') == -1) {
-                    val (dashboardId, panelName) = key.split("_", limit = 2)
-                    KeyValue(dashboardId to panelName, value)
-                } else {
-                    val (dashboardId, panelName) = key.split(":", limit = 2)
-                    KeyValue(dashboardId to panelName, value)
-                }
+                val (dashboardId, panelName) = key.split("_", limit = 2)
+                KeyValue(Triple(key, dashboardId, panelName), value)
             }
-            .foreach { (dashboardId, panelName), imageData ->
+            .foreach { (filename, dashboardId, panelName), imageData ->
                 try {
                     MDC.put("dashboardId", dashboardId)
                     MDC.put("panelName", panelName)
 
                     log.info("recevied ${imageData.size} bytes for dashboard=$dashboardId and panel=$panelName")
-
-                    val filename = if (panelName.indexOf(".png") == -1) "${dashboardId}_$panelName.png" else "${dashboardId}_$panelName"
 
                     Try {
                         s3Client.putObject(PutObjectRequest(exportedPanelsBucket, filename, ByteArrayInputStream(imageData), ObjectMetadata().apply {
